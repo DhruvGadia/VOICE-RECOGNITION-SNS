@@ -4,3 +4,8 @@
 *.autosave
 .DS_Store
 Thumbs.db
+
+# Fresh validation audio and local test files must stay off public GitHub
+/test_recordings/
+/audio_test.wav
+/speaker_recordings/backup_*/
