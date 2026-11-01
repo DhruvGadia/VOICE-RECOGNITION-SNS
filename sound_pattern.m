@@ -1,7 +1,5 @@
 function [pattern, filteredSound, details] = sound_pattern(x, fs)
-% Summarize speech using stable, trimmed MFCC statistics and log-pitch.
-% Enrollment AND test audio use the same processing, so no re-recording
-% is required when this file changes.
+% Summarize speech with 13 MFCC means, 13 deviations, and log-pitch.
 
 if fs ~= 16000
     error('speaker:SampleRate', 'Audio must be recorded at 16000 Hz.');
@@ -42,22 +40,12 @@ starts = 1:hopLength:(length(x)-frameLength+1);
 indices = (0:frameLength-1)' + starts;
 frames = filteredSound(indices);
 energy = mean(frames.^2, 1);
-% Estimate noise from the intended initial quiet period. The median is less
-% affected by a short click/cough than the previous mean-energy threshold.
-quietFrameCount = max(1, sum(starts + frameLength - 1 <= round(0.25*fs)));
-quietEnergy = median(energy(1:quietFrameCount));
-sortedEnergy = sort(energy);
-upperEnergy = sortedEnergy(max(1, ceil(0.90*numel(sortedEnergy))));
-threshold = max([4*quietEnergy, 0.02*upperEnergy, 1e-8]);
-
-% Smooth isolated on/off decisions over five frames (about 50 ms).
-% Keep actual energetic frames: do not turn the gaps between words into speech.
-rawSpeech = energy > threshold;
-speechFrames = (conv(double(rawSpeech), ones(1, 5), 'same') >= 3) ...
-    & (energy > 0.5*threshold);
+% The first 0.25 s must contain background only, including in imported files.
+background = filteredSound(1:round(0.25*fs));
+threshold = max([4*mean(background.^2), 0.01*max(energy), 1e-8]);
+speechFrames = energy > threshold;
 if sum(speechFrames)*hopLength/fs < 0.5
-    error('speaker:NoSpeech', ...
-        'Insufficient speech. Stay quiet first and speak the full phrase clearly.');
+    error('speaker:NoSpeech', 'Insufficient speech. Stay quiet first, then speak clearly for several seconds.');
 end
 
 emphasized = filter([1 -0.97], 1, filteredSound);
@@ -80,21 +68,10 @@ logPower = log(max(filterBank*powerSpectrum, 1e-12));
 % Exclude coefficient zero to reduce sensitivity to overall recording level.
 dctBasis = sqrt(2/26)*cos(pi*(1:13)'*((0:25)+0.5)/26);
 cepstra = dctBasis*logPower;
-% Trim the 10 percent most extreme frames from EACH coefficient before
-% pooling. This reduces the effects of plosives, breath/noise bursts and
-% uncertain speech boundaries, without discarding entire spoken words.
-sortedCepstra = sort(cepstra, 2);
-trim = floor(0.10 * size(sortedCepstra, 2));
-if 2*trim >= size(sortedCepstra, 2) - 1
-    trim = 0;
-end
-stableCepstra = sortedCepstra(:, 1+trim:end-trim);
-pattern = [mean(stableCepstra, 2); std(stableCepstra, 0, 2)];
+pattern = [mean(cepstra, 2); std(cepstra, 0, 2)];
 details.cepstra = cepstra;
 details.frame_times = (starts(speechFrames)-1+frameLength/2)/fs;
 details.speech_seconds = sum(speechFrames)*hopLength/fs;
-details.speech_frames = sum(speechFrames);
-details.noise_energy = quietEnergy;
 
 % Periodicity supplies a voice-source cue alongside the spectral MFCCs.
 pitchLength = round(0.040*fs);
