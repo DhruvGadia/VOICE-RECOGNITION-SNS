@@ -92,7 +92,7 @@ The live demo has no WAV-file selection option. Enrollment still saves 16 kHz WA
 2. Select speech using frame power over 25 ms frames with a 10 ms hop.
 3. Apply pre-emphasis, a Hamming window, a 512-point FFT, 26 mel filters, a logarithm, and a DCT.
 4. Keep 13 MFCCs, excluding coefficient zero. Their means and standard deviations supply 26 spectral features. Also estimate vocal pitch from normalized autocorrelation of 40 ms speech frames, using lags corresponding to 70–400 Hz. At least 0.15 seconds of periodic voiced frames is required; the median pitch is stored as a base-2 logarithm, giving 27 features in total.
-5. Take the coordinate-wise median of each person's five descriptors. Combine scaled MFCC distance (85%) and log-pitch distance (15%), with minimum scale floors of 0.65 MFCC units and 0.18 octave. Learn bounded thresholds from within-speaker leave-one-out distances. Compare the live voice to its two nearest enrollment clips and the speaker median. A failed candidate is rejected; another speaker is never selected as a fallback. Suspected inconsistent clips are reported in the Command Window.
+5. Take the coordinate-wise median of each person's five descriptors. Combine scaled MFCC distance (85%) and log-pitch distance (15%), with minimum scale floors of 0.65 MFCC units and 0.18 octave. Use Huber loss for normalized MFCC deviations so a single unusually large coefficient does not dominate the score; calibrate matching and acceptance limits with that same loss. Learn bounded thresholds from within-speaker leave-one-out distances. Compare the live voice to its two nearest enrollment clips and the speaker median. A failed candidate is rejected; another speaker is never selected as a fallback. Suspected inconsistent clips are reported in the Command Window.
 
 The main Signals and Systems connections are discrete-time operations (Unit 1), LTI filtering and convolution (Unit 2), and Fourier analysis (Unit 4). The pre-emphasis difference equation also has a Z-transform interpretation (Unit 6):
 
@@ -117,11 +117,11 @@ The implementation normalizes each lag by the overlapping frame energies, accept
 For MFCC statistics $\mathbf{m}=[\mu_1,\ldots,\mu_{13},\sigma_1,\ldots,\sigma_{13}]^T$ and $q=\log_2(\hat f_0)$, the updated matching distance is:
 
 $$
- d_s=\frac{0.85}{26}\sum_{i=1}^{26}\left(\frac{m_i-c_{s,i}}{a_i}\right)^2
+ d_s=\frac{0.85}{26}\sum_{i=1}^{26}\rho\left(\frac{m_i-c_{s,i}}{a_i}\right)
  +0.15\left(\frac{q-c_{s,27}}{a_{27}}\right)^2.
 $$
 
-$c_{s,i}$ is the speaker's coordinate-wise median. The feature scale $a_i$ is the robust median absolute deviation of enrollment-to-speaker residuals, floored at 0.65 (MFCC) or 0.18 octave (log-pitch).
+Here $\rho(t)=t^2$ when $|t|\le 1$, and $\rho(t)=2|t|-1$ otherwise (Huber loss). This limits one extreme MFCC deviation without ignoring the rest of the spectrum. $c_{s,i}$ is the speaker's coordinate-wise median. The feature scale $a_i$ is the robust median absolute deviation of enrollment-to-speaker residuals, floored at 0.65 (MFCC) or 0.18 octave (log-pitch).
 
 ## Rejection and speaker consistency
 
@@ -133,7 +133,7 @@ The matcher considers only the **closest speaker** and never assigns a runner-up
 - **Two-nearest recording consistency**: the average distance to the closest two enrollment examples must fit a bounded threshold learned from enrollment pair similarities; at least two examples must also be nearby.
 - **Separation**: if several speakers are enrolled, the relative best-versus-second-best distance margin must be at least 0.35.
 
-These thresholds are engineering heuristics for small educational datasets, **not confidence probabilities or proven security thresholds**. More tolerant matching can lower false rejections but increase false acceptances. Do not use this project as an authentication system.
+These thresholds and Huber normalization are experimental engineering heuristics for small educational datasets, **not confidence probabilities or proven security thresholds**. More tolerant matching can lower false rejections but increase false acceptances. Do not use this project as an authentication system.
 
 ## Evaluate before claiming accuracy
 
