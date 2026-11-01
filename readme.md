@@ -91,9 +91,9 @@ The live demo has no WAV-file selection option. Enrollment still saves 16 kHz WA
 ## Signal Processing
 
 1. Convert audio to mono, remove its mean, and retain 80–7600 Hz using an FFT mask and inverse FFT.
-2. Estimate initial background noise from the median of quiet frame energies; select speech over 25 ms frames with a 10 ms hop, using an adaptive threshold and a short 5-frame smoothing window. Very weak or isolated frames are excluded.
+2. Select speech using frame power over 25 ms frames with a 10 ms hop. The experimental v2 noise-threshold and temporal smoothing changes were reverted after they made repeated live identification less reliable.
 3. Apply pre-emphasis, a Hamming window, a 512-point FFT, 26 mel filters, a logarithm, and a DCT.
-4. Keep 13 MFCCs, excluding coefficient zero. Trim the upper and lower 10% of frames for each coefficient before taking its mean and standard deviation; these supply 26 more stable spectral features. Also estimate vocal pitch from normalized autocorrelation of 40 ms speech frames, using lags corresponding to 70–400 Hz. At least 0.15 seconds of periodic voiced frames is required; the median pitch is stored as a base-2 logarithm, giving 27 features in total.
+4. Keep 13 MFCCs, excluding coefficient zero. Their untrimmed means and standard deviations supply 26 spectral features. An experimental 10% frame-trimming change was reverted after a live-test regression. Also estimate vocal pitch from normalized autocorrelation of 40 ms speech frames, using lags corresponding to 70–400 Hz. At least 0.15 seconds of periodic voiced frames is required; the median pitch is stored as a base-2 logarithm, giving 27 features in total.
 5. Take the coordinate-wise median of each person's five descriptors. Combine scaled MFCC distance (85%) and log-pitch distance (15%), with minimum scale floors of 0.65 MFCC units and 0.18 octave. Use Huber loss for normalized MFCC deviations so a single unusually large coefficient does not dominate the score; calibrate matching and acceptance limits with that same loss. Learn bounded thresholds from within-speaker leave-one-out distances. Compare the live voice to its two nearest enrollment clips and the speaker median. A failed candidate is rejected; another speaker is never selected as a fallback. Suspected inconsistent clips are reported in the Command Window.
 
 The main Signals and Systems connections are discrete-time operations (Unit 1), LTI filtering and convolution (Unit 2), and Fourier analysis (Unit 4). The pre-emphasis difference equation also has a Z-transform interpretation (Unit 6):
@@ -123,7 +123,7 @@ $$
  +0.15\left(\frac{q-c_{s,27}}{a_{27}}\right)^2.
 $$
 
-Here $\rho(t)=t^2$ when $|t|\le 1$, and $\rho(t)=2|t|-1$ otherwise (Huber loss). This limits one extreme MFCC deviation without ignoring the rest of the spectrum. $c_{s,i}$ is the speaker's coordinate-wise median. The feature scale $a_i$ is the robust median absolute deviation of enrollment-to-speaker residuals, floored at 0.65 (MFCC) or 0.18 octave (log-pitch). The MFCC means and deviations are now derived from temporally trimmed speech frames. Both training and testing use the same feature extractor.
+Here $\rho(t)=t^2$ when $|t|\le 1$, and $\rho(t)=2|t|-1$ otherwise (Huber loss). This limits one extreme MFCC deviation without ignoring the rest of the spectrum. $c_{s,i}$ is the speaker's coordinate-wise median. The feature scale $a_i$ is the robust median absolute deviation of enrollment-to-speaker residuals, floored at 0.65 (MFCC) or 0.18 octave (log-pitch). The MFCC means and deviations use the original untrimmed speech frames. Both enrollment and live testing use the same feature extractor.
 
 ## Rejection and speaker consistency
 
@@ -136,6 +136,12 @@ The matcher considers only the **closest speaker** and never assigns a runner-up
 - **Separation**: if several speakers are enrolled, the relative best-versus-second-best distance margin must be at least 0.35.
 
 These thresholds and Huber normalization are experimental engineering heuristics for small educational datasets, **not confidence probabilities or proven security thresholds**. The thresholds are initially estimated from enrollment leave-one-out samples; the fresh-test report provides independent evidence for whether their false-accept/false-reject balance is acceptable, rather than silently changing thresholds. More tolerant matching can lower false rejections but increase false acceptances. Do not use this project as an authentication system.
+
+## Live regression and rollback notice
+
+On a small series of live microphone trials, the earlier matcher with the original speech feature extractor recognized the registered user in **4/6** attempts; the experimental adaptive-VAD and trimmed-MFCC version recognized them in **1/5** attempts. The V2 preprocessing change was **reverted** on this branch; the Huber-based matcher, invalid-enrollment skipping, diagnostics, and independent-test utilities remain. Different trial counts and unpaired recordings mean these results are only a warning, not definitive proof of the regression cause.
+
+Do not relax speaker separation or acceptance thresholds based solely on successful enrollment leave-one-out checks. A failed live check can arise from speech cropping, browser/microphone conditions, or ambiguous enrolled voices; record fresh held-out trials and assess incorrect acceptance as well as false rejection before changing a check.
 
 ## Independent live checks (recommended)
 
