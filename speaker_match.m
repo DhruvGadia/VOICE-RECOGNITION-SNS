@@ -33,6 +33,8 @@ result.pitch_limits = zeros(1, count);
 result.support = zeros(1, count);
 result.neighbor_scores = zeros(1, count);
 result.neighbor_limits = zeros(1, count);
+result.mfcc_scores = zeros(1, count);
+result.pitch_differences = zeros(1, count);
 result.profile_valid = false(1, count);
 result.bad_samples = cell(1, count);
 mfccScores = zeros(1, count);
@@ -81,6 +83,8 @@ for s = 1:count
         && sum(enrollmentDistances <= 1.5 * result.limits(s)) >= 3;
 end
 
+result.mfcc_scores = mfccScores;
+result.pitch_differences = pitchDiffs;
 [ordered, indices] = sort(result.scores);
 result.winner = indices(1);
 result.margin = NaN;
@@ -102,6 +106,7 @@ reasons = {'Enrollment samples are inconsistent. Review this speaker.', ...
     'Voice pitch differs from the enrolled profile.', ...
     'Too few enrollment recordings support the candidate.', ...
     'The closest two speakers are not sufficiently separated.'};
+result.checks = checks;
 result.accepted = all(checks);
 result.reason = 'Accepted';
 if ~result.accepted
