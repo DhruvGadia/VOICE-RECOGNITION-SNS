@@ -43,6 +43,8 @@ Profiles are calculated in memory from the WAV files every time you run identifi
 | `sound_pattern.m` | Filter audio and extract MFCC and pitch features |
 | `speaker_match.m` | Multi-template matching with calibrated rejection checks |
 | `evaluate_enrollment.m` | Leave-one-out development checks (no microphone needed) |
+| `collect_test_sample.m` | Record fresh labeled validation audio without modifying enrollment |
+| `evaluate_fresh.m` | Count genuine rejections and unknown-person false acceptances on fresh WAVs |
 
 Enrollment creates `speaker_recordings/speaker_<name>/sample_001.wav` through `sample_005.wav`. The version-controlled example enrollment set contains **two speakers and ten recordings**:
 
@@ -89,9 +91,9 @@ The live demo has no WAV-file selection option. Enrollment still saves 16 kHz WA
 ## Signal Processing
 
 1. Convert audio to mono, remove its mean, and retain 80–7600 Hz using an FFT mask and inverse FFT.
-2. Select speech using frame power over 25 ms frames with a 10 ms hop.
+2. Estimate initial background noise from the median of quiet frame energies; select speech over 25 ms frames with a 10 ms hop, using an adaptive threshold and a short 5-frame smoothing window. Very weak or isolated frames are excluded.
 3. Apply pre-emphasis, a Hamming window, a 512-point FFT, 26 mel filters, a logarithm, and a DCT.
-4. Keep 13 MFCCs, excluding coefficient zero. Their means and standard deviations supply 26 spectral features. Also estimate vocal pitch from normalized autocorrelation of 40 ms speech frames, using lags corresponding to 70–400 Hz. At least 0.15 seconds of periodic voiced frames is required; the median pitch is stored as a base-2 logarithm, giving 27 features in total.
+4. Keep 13 MFCCs, excluding coefficient zero. Trim the upper and lower 10% of frames for each coefficient before taking its mean and standard deviation; these supply 26 more stable spectral features. Also estimate vocal pitch from normalized autocorrelation of 40 ms speech frames, using lags corresponding to 70–400 Hz. At least 0.15 seconds of periodic voiced frames is required; the median pitch is stored as a base-2 logarithm, giving 27 features in total.
 5. Take the coordinate-wise median of each person's five descriptors. Combine scaled MFCC distance (85%) and log-pitch distance (15%), with minimum scale floors of 0.65 MFCC units and 0.18 octave. Use Huber loss for normalized MFCC deviations so a single unusually large coefficient does not dominate the score; calibrate matching and acceptance limits with that same loss. Learn bounded thresholds from within-speaker leave-one-out distances. Compare the live voice to its two nearest enrollment clips and the speaker median. A failed candidate is rejected; another speaker is never selected as a fallback. Suspected inconsistent clips are reported in the Command Window.
 
 The main Signals and Systems connections are discrete-time operations (Unit 1), LTI filtering and convolution (Unit 2), and Fourier analysis (Unit 4). The pre-emphasis difference equation also has a Z-transform interpretation (Unit 6):
@@ -121,7 +123,7 @@ $$
  +0.15\left(\frac{q-c_{s,27}}{a_{27}}\right)^2.
 $$
 
-Here $\rho(t)=t^2$ when $|t|\le 1$, and $\rho(t)=2|t|-1$ otherwise (Huber loss). This limits one extreme MFCC deviation without ignoring the rest of the spectrum. $c_{s,i}$ is the speaker's coordinate-wise median. The feature scale $a_i$ is the robust median absolute deviation of enrollment-to-speaker residuals, floored at 0.65 (MFCC) or 0.18 octave (log-pitch).
+Here $\rho(t)=t^2$ when $|t|\le 1$, and $\rho(t)=2|t|-1$ otherwise (Huber loss). This limits one extreme MFCC deviation without ignoring the rest of the spectrum. $c_{s,i}$ is the speaker's coordinate-wise median. The feature scale $a_i$ is the robust median absolute deviation of enrollment-to-speaker residuals, floored at 0.65 (MFCC) or 0.18 octave (log-pitch). The MFCC means and deviations are now derived from temporally trimmed speech frames. Both training and testing use the same feature extractor.
 
 ## Rejection and speaker consistency
 
@@ -133,7 +135,18 @@ The matcher considers only the **closest speaker** and never assigns a runner-up
 - **Two-nearest recording consistency**: the average distance to the closest two enrollment examples must fit a bounded threshold learned from enrollment pair similarities; at least two examples must also be nearby.
 - **Separation**: if several speakers are enrolled, the relative best-versus-second-best distance margin must be at least 0.35.
 
-These thresholds and Huber normalization are experimental engineering heuristics for small educational datasets, **not confidence probabilities or proven security thresholds**. More tolerant matching can lower false rejections but increase false acceptances. Do not use this project as an authentication system.
+These thresholds and Huber normalization are experimental engineering heuristics for small educational datasets, **not confidence probabilities or proven security thresholds**. The thresholds are initially estimated from enrollment leave-one-out samples; the fresh-test report provides independent evidence for whether their false-accept/false-reject balance is acceptable, rather than silently changing thresholds. More tolerant matching can lower false rejections but increase false acceptances. Do not use this project as an authentication system.
+
+## Independent live checks (recommended)
+
+Do **not** evaluate only the five enrollment recordings: that systematically overestimates reliability on new recordings. In MATLAB Online, after downloading this branch and copying your local enrollment files into it:
+
+1. Run `collect_test_sample`; enter the enrolled name (for example `speaker_4`, `Arnav` or `Sarvesh`). Repeat for several independent sessions.
+2. Have someone who is **not enrolled** record a fresh sample using the same command and enter `unknown` as the label. Collect samples from more than one unknown person if possible, with their consent.
+3. Run `evaluate_fresh`. It reports correct enrolled identifications, false rejections, wrong-name matches, correctly rejected unknowns, and falsely accepted unknowns.
+4. Keep `test_recordings/` local; it is excluded from Git, and **must never be used to train or re-enroll** if it is intended as a held-out evaluation set.
+
+Changing `sound_pattern.m` does not require recording enrollment samples again: all features are recalculated from WAVs every run. However, after changing preprocessing, repeat your independent evaluation. **Do not automatically increase acceptance limits based on only a handful of trials**; false acceptance and false rejection must be checked together. These are not security-grade verification claims.
 
 ## Evaluate before claiming accuracy
 
