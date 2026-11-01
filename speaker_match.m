@@ -5,7 +5,9 @@ function result = speaker_match(features, pattern)
 %
 % This is a small-data educational matcher, NOT voice authentication.
 % Thresholds are estimated from leave-one-out enrollment variation and
-% limited by absolute caps. Validate with fresh enrolled and unknown voices.
+% limited by absolute caps. MFCC comparisons use bounded-influence Huber
+% loss to avoid a single unstable cepstral coefficient dominating the score.
+% Validate with fresh enrolled and unknown voices.
 
 if size(features, 1) ~= 27 || size(features, 2) < 4 || ...
         ~isnumeric(pattern) || numel(pattern) ~= 27
@@ -41,7 +43,7 @@ for s = 1:count
     reference = centers(:, s);
     delta = (pattern - reference) ./ scale;
     result.scores(s) = weighted_distance(delta);
-    mfccScores(s) = mean(delta(1:26).^2);
+    mfccScores(s) = mean(robust_mfcc_loss(delta(1:26)));
     pitchDiffs(s) = abs(pattern(27) - reference(27));
 
     % Leave-one-out distances measure how enrolled recordings vary naturally.
@@ -53,7 +55,8 @@ for s = 1:count
         leaveOneOutCenter = median(samples(:, others), 2);
         gap = (heldOut - leaveOneOutCenter) ./ scale;
         loo(:, j) = [weighted_distance(gap); ...
-            mean(gap(1:26).^2); abs(heldOut(27) - leaveOneOutCenter(27))];
+            mean(robust_mfcc_loss(gap(1:26))); ...
+            abs(heldOut(27) - leaveOneOutCenter(27))];
 
         otherGaps = (samples(:, others) - heldOut) ./ scale;
         twoNearest = sort(weighted_distance(otherGaps));
@@ -113,7 +116,19 @@ limit = min(ceilingValue, max(floorValue, mid + 2.5 * spread));
 end
 
 function distance = weighted_distance(difference)
-% Match spectral shape primarily; pitch provides a secondary cue.
-distance = 0.85 * mean(difference(1:26, :, :).^2, 1) + ...
+% A single anomalous MFCC mean must not dominate squared distance.
+% Huber's loss is quadratic near a match and linear for large deviations.
+% Apply the SAME loss to enrollment calibration and test comparisons.
+distance = 0.85 * mean(robust_mfcc_loss(difference(1:26, :, :)), 1) + ...
     0.15 * difference(27, :, :).^2;
+end
+
+function loss = robust_mfcc_loss(delta)
+% Huber loss with a knee at one normalized feature unit.
+% A large number of mismatched features still produces a large distance.
+knee = 1.0;
+magnitude = abs(delta);
+loss = magnitude.^2;
+large = magnitude > knee;
+loss(large) = 2 * knee * magnitude(large) - knee^2;
 end
